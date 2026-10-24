@@ -9,10 +9,18 @@ Ein schnelles Arcade-Spiel für Browser und Handy: Spring von Planet zu Planet, 
 - Ziel auf die **Mitte** des Planeten für **PERFEKT**-Landungen – jede Perfekte in Folge gibt mehr Punkte.
 - Fliegst du ins Leere, ist die Runde vorbei.
 
-### Gefahren
-- **Wandernde Planeten** bewegen sich hin und her.
-- **Rote Planeten mit „!“** zerfallen nach ein paar Sekunden – schnell weiter!
-- Je höher du kommst, desto schneller wird alles.
+### Levels
+Alle 12 Planeten erreichst du ein neues Level mit eigener Farbe, neuen Gefahren und Münz-Bonus:
+
+| Level | Zone | Neu dabei |
+|---|---|---|
+| 1 | Startzone | Zum Warmwerden |
+| 2 | Wandernde Welten | Planeten bewegen sich hin und her |
+| 3 | Zerfallszone | Rote „!“-Planeten explodieren nach ein paar Sekunden |
+| 4 | Asteroidenfeld | Asteroiden fliegen quer durchs Bild |
+| 5 | Pulsarnebel | Pulsierende Umlaufbahnen und gelbe Turbo-Planeten |
+| 6 | Schwarzes Loch | Schwarze Löcher verbiegen deine Flugbahn – oder verschlucken dich |
+| 7+ | Chaos | Alles gemischt, immer schneller |
 
 ### Fortschritt
 - 🪙 **Münzen** sammeln und **8 Skins** freischalten (Feuerball, Schwarzes Loch, Regenbogen …)

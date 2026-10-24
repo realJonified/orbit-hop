@@ -17,6 +17,10 @@ canvas{display:block;width:100%;height:100%}
 .hud.hidden{opacity:0}
 #hudScore{font-size:3.2em;line-height:1;text-shadow:0 0 22px rgba(94,242,255,.55)}
 #hudCoins{color:var(--gold);font-size:1.15em}
+#hudLevel{color:var(--muted);font-size:.8em;margin-top:.35em}
+.lvbar{width:5.5em;height:.3em;border-radius:1em;background:rgba(255,255,255,.12);margin-top:.3em;overflow:hidden}
+.lvbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+.lvl{color:var(--accent);font-weight:800;font-size:1em}
 #hudCombo{justify-self:end;color:var(--accent2);font-size:1.15em;text-shadow:0 0 14px rgba(255,79,216,.6)}
 .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.75em;padding:1.5em;text-align:center;background:radial-gradient(ellipse at center,rgba(7,6,26,.45),rgba(7,6,26,.9));transition:opacity .25s}
 .screen.hidden{opacity:0;pointer-events:none}
@@ -24,8 +28,8 @@ canvas{display:block;width:100%;height:100%}
 .title span{display:block}
 @keyframes float{50%{transform:translateY(-.12em)}}
 .sub{color:var(--muted);max-width:19em;font-size:.95em;line-height:1.4}
-.stats{display:flex;gap:1em}
-.stats div{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:.9em;padding:.5em 1.2em;min-width:7em}
+.stats{display:flex;gap:.6em}
+.stats div{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:.9em;padding:.5em .8em;min-width:5.5em}
 .stats small{display:block;color:var(--muted);font-size:.75em;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
 .stats b{font-size:1.6em}
 .stats .gold b{color:var(--gold)}
@@ -72,7 +76,7 @@ canvas{display:block;width:100%;height:100%}
   <canvas id="c"></canvas>
 
   <div class="hud hidden" id="hud">
-    <div id="hudCoins">🪙 0</div>
+    <div><div id="hudCoins">🪙 0</div><div id="hudLevel">Level 1</div><div class="lvbar"><i id="hudLvBar"></i></div></div>
     <div id="hudScore">0</div>
     <div id="hudCombo"></div>
   </div>
@@ -83,6 +87,7 @@ canvas{display:block;width:100%;height:100%}
     <p class="sub">Tippe, um abzuspringen. Ziel auf die <b>Mitte</b> des nächsten Planeten für PERFEKT-Combos!</p>
     <div class="stats">
       <div><small>Rekord</small><b id="mBest">0</b></div>
+      <div><small>Level</small><b id="mLevel">1</b></div>
       <div class="gold"><small>Münzen</small><b id="mCoins">0</b></div>
     </div>
     <button class="btn primary" id="bPlay">▶ Spielen</button>
@@ -94,6 +99,7 @@ canvas{display:block;width:100%;height:100%}
   <div class="screen hidden" id="over">
     <div class="label" id="oLabel">GAME OVER</div>
     <div class="big" id="oScore">0</div>
+    <div class="lvl" id="oLevel"></div>
     <div class="row"><span>Rekord <b id="oBest">0</b></span><span>🪙 +<b id="oCoins">0</b></span><span>🔥 <b id="oCombo">0</b></span></div>
     <div class="tease" id="oTease"></div>
     <div class="missions" id="oMissions"></div>
@@ -142,7 +148,7 @@ try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY));
   if (s && typeof s === 'object') Object.assign(save, s);
 } catch (e) {}
-save.mlv = Object.assign({ score: 0, coins: 0, combo: 0 }, save.mlv);
+save.mlv = Object.assign({ score: 0, coins: 0, combo: 0, level: 0 }, save.mlv);
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
 
 // ---------- Skins ----------
@@ -168,6 +174,7 @@ const MISSIONS = {
   score: { goal: l => 10 + l * 10, text: g => `Erreiche ${g} Punkte in einem Lauf` },
   coins: { goal: l => 5 + l * 5,   text: g => `Sammle ${g} Münzen in einem Lauf` },
   combo: { goal: l => 3 + l * 2,   text: g => `Schaffe ${g} Perfekte in Folge` },
+  level: { goal: l => 2 + l,       text: g => `Erreiche Level ${g}` },
 };
 const reward = l => 25 + l * 20;
 
@@ -191,10 +198,37 @@ function beep(freq, dur = 0.08, type = 'sine', vol = 0.15, slide = 0) {
 
 // ---------- Spielzustand ----------
 let state = 'menu';
-let planets = [], coins = [], parts = [], floats = [];
+let planets = [], coins = [], parts = [], floats = [], asteroids = [], holes = [];
 let player = null, camY = 0, camBase = 0, time = 0, shake = 0, flash = 0;
 let pIndex = 0, highestIdx = 0, score = 0, combo = 0, started = false, deadT = 0, overT = 0;
-const run = { score: 0, coins: 0, combo: 0, done: {} };
+let level = 0, bgHue = 240, banner = null;
+const run = { score: 0, coins: 0, combo: 0, level: 1, done: {} };
+
+// ---------- Level ----------
+const LEVEL_LEN = 12;
+const LEVELS = [
+  { name: 'Startzone',        hue: 240, feats: [] },
+  { name: 'Wandernde Welten', hue: 200, feats: ['move'] },
+  { name: 'Zerfallszone',     hue: 345, feats: ['move', 'collapse'] },
+  { name: 'Asteroidenfeld',   hue: 25,  feats: ['move', 'asteroid'] },
+  { name: 'Pulsarnebel',      hue: 160, feats: ['pulse', 'turbo', 'collapse'] },
+  { name: 'Schwarzes Loch',   hue: 275, feats: ['hole', 'move', 'pulse'] },
+];
+const ALL_FEATS = ['move', 'collapse', 'asteroid', 'pulse', 'turbo', 'hole'];
+const levelOf = i => Math.floor(i / LEVEL_LEN);
+function levelInfo(n) {
+  if (n < LEVELS.length) return LEVELS[n];
+  const k = n - LEVELS.length;
+  return { name: `Chaos ${k + 1}`, hue: (300 + k * 47) % 360, feats: ALL_FEATS };
+}
+const HOLE_G = 5.5e6;
+function pull(o, dt) {
+  for (const h of holes) {
+    const dx = h.x - o.x, dy = h.y - o.y, d2 = Math.max(dx * dx + dy * dy, 625), d = Math.sqrt(d2), a = HOLE_G / d2;
+    o.vx += dx / d * a * dt;
+    o.vy += dy / d * a * dt;
+  }
+}
 
 const stars = Array.from({ length: 140 }, () => ({
   x: rand(0, W), y: rand(0, H), z: rand(0.05, 0.5), s: rand(0.5, 1.8), ph: rand(0, TAU)
@@ -204,33 +238,61 @@ const orbitSpeed = () => 210 + Math.min(score, 100) * 2;
 const launchSpeed = () => 620 + Math.min(score, 100) * 3;
 
 function makePlanet(prev) {
-  const i = pIndex++, d = Math.min(1, i / 70);
+  const i = pIndex++, d = Math.min(1, i / 90), lv = levelOf(i);
   const r = rand(17, 30) - d * 5;
   const R = r + rand(28, 40) - d * 6;
-  const p = { i, r, R, x: W / 2, baseX: W / 2, y: H * 0.7, hue: rand(160, 320), type: 'normal',
-              amp: 0, spd: 0, ph: rand(0, TAU), life: 0, maxLife: 0, dead: false, ring: 0, deco: Math.random() < 0.35 };
+  const p = { i, lv, r, R, baseR: R, x: W / 2, baseX: W / 2, y: H * 0.7, hue: rand(160, 320), type: 'normal',
+              amp: 0, spd: 0, ph: rand(0, TAU), life: 0, maxLife: 0, pulse: 0, turbo: 1,
+              dead: false, ring: 0, deco: Math.random() < 0.35 };
   if (prev) {
     p.y = prev.y - (rand(175, 230) + d * 70);
-    const m = R + 12;
+    const m = R * 1.25 + 12;
     let x, tries = 0;
     do { x = rand(m, W - m); tries++; } while (Math.abs(x - prev.baseX) < 70 && tries < 10);
     p.x = p.baseX = x;
-    if (i > 6) {
-      const roll = Math.random();
-      if (roll < 0.12 + d * 0.3) {
-        p.type = 'move';
+    // Die ersten zwei Planeten eines Levels sind ruhig, damit man sich einstellen kann
+    const feats = levelInfo(lv).feats.filter(f => f === 'move' || f === 'collapse' || f === 'pulse' || f === 'turbo');
+    if (i % LEVEL_LEN > 1 && feats.length && Math.random() < 0.5 + d * 0.3) {
+      p.type = feats[Math.floor(Math.random() * feats.length)];
+      if (p.type === 'move') {
         p.amp = Math.min(rand(35, 80) + d * 40, (W - 2 * m) / 2 - 4);
         p.spd = rand(0.9, 1.5) + d * 1.2;
         p.baseX = clamp(x, m + p.amp, W - m - p.amp);
         p.x = p.baseX + Math.sin(time * p.spd + p.ph) * p.amp;
-      } else if (i > 14 && roll < 0.2 + d * 0.5) {
-        p.type = 'collapse';
+      } else if (p.type === 'collapse') {
         p.maxLife = Math.max(1.3, 3.2 - d * 1.8);
         p.hue = rand(0, 25);
+      } else if (p.type === 'pulse') {
+        p.pulse = rand(0.18, 0.28);
+        p.spd = rand(1.6, 2.6);
+        p.hue = rand(130, 175);
+      } else {
+        p.turbo = 1.8 + d * 0.4;
+        p.hue = rand(45, 60);
       }
     }
   }
   return p;
+}
+
+function addHazards(a, b) {
+  const feats = levelInfo(b.lv).feats;
+  if (b.i % LEVEL_LEN <= 1) return;
+  const my = (a.y + b.y) / 2;
+  if (feats.includes('asteroid') && Math.random() < 0.6) {
+    const r = rand(12, 20), n = 7;
+    asteroids.push({
+      x: rand(0, W), y: my + rand(-20, 20), r,
+      vx: (Math.random() < 0.5 ? -1 : 1) * rand(60, 120),
+      rot: rand(0, TAU), spin: rand(-2, 2),
+      pts: Array.from({ length: n }, (_, k) => ({ a: k / n * TAU, r: r * rand(0.75, 1.15) }))
+    });
+  }
+  if (feats.includes('hole') && Math.random() < 0.5) {
+    // Neben die direkte Linie setzen, nicht mitten drauf
+    const mx = (a.baseX + b.baseX) / 2, side = mx < W / 2 ? 1 : -1;
+    holes.push({ x: clamp(mx + side * rand(70, 120), 40, W - 40), y: my + rand(-25, 25), ph: rand(0, TAU) });
+  }
 }
 
 function addCoins(a, b) {
@@ -253,12 +315,14 @@ function addPlanet() {
   const p = makePlanet(prev);
   planets.push(p);
   addCoins(prev, p);
+  addHazards(prev, p);
 }
 
 function resetWorld() {
-  planets = []; coins = []; parts = []; floats = [];
+  planets = []; coins = []; parts = []; floats = []; asteroids = []; holes = [];
   pIndex = 0; highestIdx = 0; score = 0; combo = 0; started = false; shake = 0; flash = 0;
-  run.score = run.coins = run.combo = 0; run.done = {};
+  level = 0; banner = null;
+  run.score = run.coins = run.combo = 0; run.level = 1; run.done = {};
   const p0 = makePlanet(null);
   planets.push(p0);
   while (planets.length < 8) addPlanet();
@@ -335,12 +399,30 @@ function capture(p) {
       beep(440, 0.08, 'sine', 0.12);
       burst(p.x, p.y, 10, `hsl(${p.hue},90%,70%)`, 150, 0.5, 2.5);
     }
+    if (p.lv > level) levelUp(p.lv);
     run.score = score;
     checkMissions();
     updateHud();
   } else {
     beep(330, 0.06, 'sine', 0.08);
   }
+}
+
+function showBanner(lv) {
+  banner = { lv, name: levelInfo(lv).name, t: 0 };
+}
+
+function levelUp(lv) {
+  level = lv;
+  run.level = lv + 1;
+  const bonus = 10 * lv;
+  save.coins += bonus; run.coins += bonus;
+  if (lv + 1 > (save.bestLevel || 0)) save.bestLevel = lv + 1;
+  persist();
+  showBanner(lv);
+  flash = 0.35;
+  floatText(player.x, player.y - 40, `+${bonus} 🪙 Level-Bonus`, '#ffd25e', 20);
+  [523, 659, 784, 1047].forEach((f, k) => setTimeout(() => beep(f, 0.16, 'triangle', 0.14), k * 90));
 }
 
 function explodePlanet(p) {
@@ -366,6 +448,7 @@ function startGame() {
   resetWorld();
   state = 'play';
   showScreen(null);
+  showBanner(0);
   updateHud();
   beep(500, 0.08, 'triangle', 0.1, 1.5);
 }
@@ -381,6 +464,7 @@ function gameOver() {
   $('oBest').textContent = save.best;
   $('oCoins').textContent = run.coins;
   $('oCombo').textContent = run.combo;
+  $('oLevel').textContent = `Level ${level + 1} · ${levelInfo(level).name}`;
   const lab = $('oLabel');
   lab.textContent = rec && prevBest > 0 ? '🏆 NEUER REKORD!' : 'GAME OVER';
   lab.classList.toggle('rec', rec && prevBest > 0);
@@ -388,6 +472,8 @@ function gameOver() {
   const lines = [];
   const gap = prevBest - score + 1;
   if (!rec && prevBest > 0 && gap <= 5) lines.push(`Nur ${gap} ${gap === 1 ? "Punkt" : "Punkte"} bis zum Rekord! 😤`);
+  const toNext = LEVEL_LEN * (level + 1) - highestIdx;
+  if (toNext <= 4) lines.push(`Nur ${toNext} ${toNext === 1 ? 'Planet' : 'Planeten'} bis „${levelInfo(level + 1).name}“! 🚀`);
   const next = SKINS.filter(s => !save.owned.includes(s.id)).sort((a, b) => a.price - b.price)[0];
   if (next) lines.push(save.coins >= next.price
     ? `Du kannst dir „${next.name}“ leisten! 🛸`
@@ -411,14 +497,24 @@ function update(dt) {
 
   for (const p of planets) {
     if (p.type === 'move') p.x = p.baseX + Math.sin(time * p.spd + p.ph) * p.amp;
+    if (p.type === 'pulse') p.R = p.baseR * (1 + Math.sin(time * p.spd + p.ph) * p.pulse);
     if (p.ring > 0) p.ring = Math.max(0, p.ring - dt * 2);
   }
+  for (const a of asteroids) {
+    a.x += a.vx * dt;
+    a.rot += a.spin * dt;
+    if (a.x < -40) a.x = W + 40;
+    if (a.x > W + 40) a.x = -40;
+  }
+  if (banner) { banner.t += dt; if (banner.t > 2.6) banner = null; }
+  bgHue += ((levelInfo(level).hue - bgHue + 540) % 360 - 180) * Math.min(1, dt * 1.5);
+  bgHue = (bgHue + 360) % 360;
 
   const pl = player;
   if (pl.alive && (state === 'play' || state === 'menu')) {
     if (!pl.fly) {
       const p = pl.pl;
-      pl.ang += pl.dir * (orbitSpeed() / p.R) * dt;
+      pl.ang += pl.dir * (orbitSpeed() * p.turbo / p.R) * dt;
       pl.x = p.x + Math.cos(pl.ang) * p.R;
       pl.y = p.y + Math.sin(pl.ang) * p.R;
       if (p.type === 'collapse' && state === 'play') {
@@ -426,9 +522,17 @@ function update(dt) {
         if (p.life >= p.maxLife) { explodePlanet(p); launch(); }
       }
     } else {
+      pull(pl, dt);
       pl.x += pl.vx * dt;
       pl.y += pl.vy * dt;
       pl.flyT += dt;
+      for (const h of holes) {
+        if (Math.hypot(h.x - pl.x, h.y - pl.y) < 16) { floatText(h.x, h.y - 30, 'VERSCHLUCKT!', '#b18cff'); die(); break; }
+      }
+      for (const a of asteroids) {
+        if (pl.alive && Math.hypot(a.x - pl.x, a.y - pl.y) < a.r + 6) { burst(a.x, a.y, 25, '#c9a27a', 220, 0.7, 3); asteroids.splice(asteroids.indexOf(a), 1); die(); break; }
+      }
+      if (!pl.alive) return;
       for (const p of planets) {
         if (p === pl.from || p.dead) continue;
         const dx = pl.x - p.x, dy = pl.y - p.y;
@@ -470,6 +574,8 @@ function update(dt) {
   while (planets[planets.length - 1].y > camY - H * 0.6) addPlanet();
   planets = planets.filter(p => p === pl.pl || p.y < camY + H + 200);
   coins = coins.filter(c => c.y < camY + H + 100);
+  asteroids = asteroids.filter(a => a.y < camY + H + 100);
+  holes = holes.filter(h => h.y < camY + H + 150);
 
   for (const q of parts) {
     q.x += q.vx * dt; q.y += q.vy * dt;
@@ -485,8 +591,8 @@ function update(dt) {
 function draw() {
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
 
-  // Hintergrund verändert seine Farbe, je höher du kommst
-  const hh = (240 + Math.max(0, -camY) * 0.015) % 360;
+  // Jedes Level hat seine eigene Hintergrundfarbe
+  const hh = Math.round(bgHue);
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, `hsl(${hh},60%,9%)`);
   g.addColorStop(1, `hsl(${(hh + 40) % 360},70%,4%)`);
@@ -556,6 +662,54 @@ function draw() {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('!', bx, by + 1);
     }
+    if (p.type === 'pulse') {
+      ctx.strokeStyle = `hsla(${p.hue},100%,70%,.35)`;
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.R, 0, TAU); ctx.stroke();
+    }
+    if (p.type === 'turbo') {
+      ctx.strokeStyle = `hsla(${p.hue},100%,75%,.8)`;
+      ctx.lineWidth = 3;
+      for (let k = 0; k < 3; k++) {
+        const a0 = time * 6 + k * TAU / 3;
+        ctx.beginPath(); ctx.arc(bx, by, p.r + 7, a0, a0 + 0.9); ctx.stroke();
+      }
+    }
+  }
+
+  // Schwarze Löcher
+  for (const h of holes) {
+    const hg = ctx.createRadialGradient(h.x, h.y, 4, h.x, h.y, 70);
+    hg.addColorStop(0, 'rgba(120,60,255,.35)');
+    hg.addColorStop(1, 'rgba(120,60,255,0)');
+    ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.arc(h.x, h.y, 70, 0, TAU); ctx.fill();
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      const a0 = -time * 3 + h.ph + k * TAU / 4;
+      ctx.strokeStyle = `rgba(${k % 2 ? '255,79,216' : '177,140,255'},.75)`;
+      ctx.beginPath(); ctx.arc(h.x, h.y, 22 + k * 3, a0, a0 + 1.6); ctx.stroke();
+    }
+    ctx.shadowColor = '#b18cff'; ctx.shadowBlur = 20;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(h.x, h.y, 15, 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Asteroiden
+  for (const a of asteroids) {
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(a.rot);
+    ctx.fillStyle = '#6b5446';
+    ctx.strokeStyle = '#c9a27a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    a.pts.forEach((q, k) => { const x = Math.cos(q.a) * q.r, y = Math.sin(q.a) * q.r; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.beginPath(); ctx.arc(a.r * 0.25, -a.r * 0.2, a.r * 0.25, 0, TAU); ctx.fill();
+    ctx.restore();
   }
 
   // Münzen
@@ -572,12 +726,18 @@ function draw() {
   // Ziellinie
   const pl = player;
   if (state === 'play' && pl.alive && !pl.fly) {
-    const tx = -Math.sin(pl.ang) * pl.dir, ty = Math.cos(pl.ang) * pl.dir;
-    const lg = ctx.createLinearGradient(pl.x, pl.y, pl.x + tx * 90, pl.y + ty * 90);
+    // Vorschau der Flugbahn – biegt sich bei Schwarzen Löchern mit
+    const s = launchSpeed();
+    const o = { x: pl.x, y: pl.y, vx: -Math.sin(pl.ang) * pl.dir * s, vy: Math.cos(pl.ang) * pl.dir * s };
+    const path = [{ x: o.x, y: o.y }];
+    for (let k = 0; k < 12; k++) { pull(o, 1 / 80); o.x += o.vx / 80; o.y += o.vy / 80; path.push({ x: o.x, y: o.y }); }
+    const lg = ctx.createLinearGradient(pl.x, pl.y, o.x, o.y);
     lg.addColorStop(0, scol(0.7)); lg.addColorStop(1, scol(0));
     ctx.strokeStyle = lg; ctx.lineWidth = 2;
     ctx.setLineDash([6, 6]);
-    ctx.beginPath(); ctx.moveTo(pl.x, pl.y); ctx.lineTo(pl.x + tx * 90, pl.y + ty * 90); ctx.stroke();
+    ctx.beginPath();
+    path.forEach((q, k) => k ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y));
+    ctx.stroke();
     ctx.setLineDash([]);
   }
 
@@ -629,6 +789,26 @@ function draw() {
     ctx.fillText('Tippe zum Abspringen', W / 2, H * 0.88);
     ctx.globalAlpha = 1;
   }
+  if (banner && state === 'play') {
+    const t = banner.t, a = t < 0.3 ? t / 0.3 : t > 2.1 ? Math.max(0, (2.6 - t) / 0.5) : 1;
+    const sc = t < 0.3 ? 0.6 + 0.4 * (t / 0.3) : 1;
+    const hue = levelInfo(banner.lv).hue;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(W / 2, H * 0.36);
+    ctx.scale(sc, sc);
+    ctx.fillStyle = 'rgba(7,6,26,.55)';
+    ctx.fillRect(-W / 2, -48, W, 96);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = `hsl(${hue},100%,65%)`; ctx.shadowBlur = 20;
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 40px system-ui,sans-serif';
+    ctx.fillText(`LEVEL ${banner.lv + 1}`, 0, -12);
+    ctx.fillStyle = `hsl(${hue},100%,75%)`;
+    ctx.font = '800 20px system-ui,sans-serif';
+    ctx.fillText(banner.name, 0, 26);
+    ctx.restore();
+  }
   if (flash > 0) {
     ctx.fillStyle = `rgba(255,255,255,${flash})`;
     ctx.fillRect(0, 0, W, H);
@@ -645,6 +825,8 @@ function updateHud() {
   $('hudScore').textContent = score;
   $('hudCoins').textContent = '🪙 ' + save.coins;
   $('hudCombo').textContent = combo > 0 ? `🔥 ×${combo}` : '';
+  $('hudLevel').textContent = `Level ${level + 1}`;
+  $('hudLvBar').style.width = Math.min(1, (highestIdx - level * LEVEL_LEN) / LEVEL_LEN) * 100 + '%';
 }
 
 function renderMissions(el, vals) {
@@ -658,6 +840,7 @@ function renderMissions(el, vals) {
 function renderMenu() {
   $('mBest').textContent = save.best;
   $('mCoins').textContent = save.coins;
+  $('mLevel').textContent = save.bestLevel || 1;
   $('bMute').textContent = save.muted ? '🔇' : '🔊';
   renderMissions($('mMissions'));
 }
